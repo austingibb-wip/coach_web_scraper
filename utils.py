@@ -15,6 +15,7 @@ social_media_handle_regex = re.compile("^\s*(@?[A-Za-z0-9-_]+(?![@]))\s*$")
 
 phone_regex = re.compile("^1?([0-9]{3})?[0-9]{7}$")
 
+
 def any_in(possible_vals, container):
     for val in possible_vals:
         if val in container:
