@@ -2,6 +2,7 @@ import re
 import validators
 from unittest import TestCase
 import sys
+import time
 
 url_regex = re.compile(
         r'^(?:(?:http|ftp)s?://)?' # http:// or https://
@@ -15,6 +16,15 @@ social_media_handle_regex = re.compile("^\s*(@?[A-Za-z0-9-_]+(?![@]))\s*$")
 
 phone_regex = re.compile("^1?([0-9]{3})?[0-9]{7}$")
 
+def retry(fun, max_tries=10):
+    for i in range(max_tries):
+        try:
+           fun()
+           return True
+        except Exception:
+            time.sleep(0.3)
+            continue
+    return False
 
 def any_in(possible_vals, container):
     for val in possible_vals:

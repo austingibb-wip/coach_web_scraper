@@ -2,6 +2,7 @@ from enum import Enum
 from unittest import TestCase
 from uuid import uuid4
 import re
+import csv
 
 from utils import validate_url, validate_email, validate_phone, validate_handle, \
     validate_email_default, validate_url_default, validate_handle_default, validate_phone_default, fail, any_in
@@ -12,20 +13,23 @@ class CoachCert(Enum):
     ASSOCIATE = 1
     PROFESSIONAL = 2
     MASTER = 3
+    LIFE = 4
 
-    @staticmethod
-    def to_str(coach_cert):
-        if coach_cert == CoachCert.ASSOCIATE:
+    def __str__(self):
+        if self == CoachCert.ASSOCIATE:
             return "Associate Certified Coach"
-        elif coach_cert == CoachCert.PROFESSIONAL:
+        elif self == CoachCert.PROFESSIONAL:
             return "Professional Certified Coach"
-        elif coach_cert == CoachCert.MASTER:
+        elif self == CoachCert.MASTER:
             return "Master Certified Coach"
+        elif self == CoachCert.LIFE:
+            return "Life Coach School Certified"
+        else:
+            return "Unknown"
 
 
 class CoachData:
     def __init__(self, source_url,
-                 company_name='',
                  first_name='',
                  last_name='',
                  coach_cert=None,
@@ -58,7 +62,6 @@ class CoachData:
             fail(message)
 
         self.source_url = source_url
-        self.company_name = company_name
         self.first_name = first_name
         self.last_name = last_name
         self.coach_cert = coach_cert
@@ -80,9 +83,11 @@ class CoachData:
 
         self.log(Level.DETAIL_PLUS, "Constructor done.")
 
+    def get_data_elements(self):
+        return [x for x in dir(self) if not x.startswith('__') and not x.startswith('_') and not callable(getattr(self, x))]
 
     def data_snapshot(self, log=True):
-        data_elements = [x for x in dir(self) if not x.startswith('__') and not x.startswith('_') and not callable(getattr(self, x))]
+        data_elements = self.get_data_elements()
         data_elements_log = "[ "
         for data_element in data_elements:
             data_elements_log += data_element + "='" + str(getattr(self, data_element)) + "', "
@@ -130,6 +135,8 @@ class TestCoachData(TestCase):
     SOME_HANDLE = "@thatguy"
     SOME_USER = "thatguy"
 
+    SETUP_DONE = False
+
     def setUp(self):
         if not logger.does_logger_exist():
             logger.initialize_logger(Level.DETAIL_PLUS)
@@ -167,7 +174,6 @@ class TestCoachData(TestCase):
     def test_data_snapshot(self):
         data = {
             "source_url": "somecoachdirectory.com",
-            "company_name": "Better-than-you coaching",
             "first_name": "Rick",
             "last_name": "Sanches",
             "coach_cert": CoachCert.MASTER,
@@ -183,6 +189,7 @@ class TestCoachData(TestCase):
         for key in data:
             if key not in datasnapshot or str(data[key]) not in datasnapshot:
                 self.fail("Data value or key is missing from coach data snapshot. " + key + ":" + str(data[key]))
+
 
 class TestCoachDataSocialMedia(TestCase):
     def setUp(self):
