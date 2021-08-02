@@ -4,66 +4,81 @@ from selenium import webdriver
 from selenium.webdriver import ActionChains
 from selenium.webdriver.common.keys import Keys
 from selenium.common.exceptions import NoSuchElementException
+
+from coach_data_writer import write_coach_to_csv, write_coach_data
 from selenium_utils import scroll_to
 from time import sleep
+import os
 
-from coach_scraper import CoachScraper, LoadResult
 import logger
 from logger import Level
 from coach_data import CoachData, CoachCert
 from config_dir import config
 from utils import retry, fail, extract_name
+from test_utils import test_setup
+from persistant_coach_processor import PersistentCoachProcessor
 
-class LifeCoachSchoolScraper(CoachScraper):
-    def __init__(self):
-        super().__init__(r"https://thelifecoachschool.com/directory/")
+class LifeCoachSchoolScraper:
+    def __init__(self, csv_file_path=None):
+        self.directory_url = r"https://thelifecoachschool.com/directory/"
         self.driver = webdriver.Firefox()
-        self.coach_hrefs = None
-        self.coach_filter_file_path = config.read("LIFE_COACH_SCHOOL_SCRAPER", "ERROR_FILTER_FILE")
-        self.href_coach_filter = self.load_href_coach_filter()
-        self.filter_file = open(self.coach_filter_file_path, "w+")
+        self.logger = logger.get_logger()
+        self.retries = int(config.read("GENERAL", "COACH_RETRIES_BEFORE_FAIL"))
+        self.csv_file_path = csv_file_path
+        if self.csv_file_path is None:
+            self.csv_file_path = config.read("GENERAL", "CSV_FILE_PATH")
+        object_file_path = config.read("LIFE_COACH_SCHOOL_SCRAPER", "OBJECTS_PATH")
+        flag_file_path = config.read("LIFE_COACH_SCHOOL_SCRAPER", "FLAG_PATH")
+        self.persistant_processor = PersistentCoachProcessor(object_file_path, flag_file_path)
 
-    def load_href_coach_filter(self):
-        href_coach_filter = set()
-        with open(self.coach_filter_file_path, "r") as filter_file:
-            for line in filter_file:
-                href_coach_filter.add(line.strip())
-        return href_coach_filter
+    def process_all_coaches(self):
+        try:
+            if not self.persistant_processor.is_initialized():
+                self.logger.log("Initializing coaches.", Level.SUMMARY)
+                coach_hrefs = self.load_coaches_from_directory()
+                objects_dict = {}
+                for coach_href in coach_hrefs:
+                    objects_dict[coach_href] = coach_href
+                self.persistant_processor.initialize(objects=objects_dict)
+                self.logger.log("Coach hrefs loaded and persisted.", Level.SUMMARY)
+            else:
+                self.logger.log("Coach objects already exist on file, not initializing.", Level.SUMMARY)
 
-    def load_all_coaches(self):
-        self.load_directory()
-        for coach_href in self.coach_hrefs:
-            if len(self.href_coach_filter) > 0 and coach_href not in self.href_coach_filter:
-                continue
+            coaches_to_process = len(self.persistant_processor.objects_dict)
+            coaches_processed = 0
+            self.logger.log("Coaches to process:" + str(coaches_to_process), Level.SUMMARY)
+            keys = list(self.persistant_processor.objects_dict.keys())
+            for coach_href in keys:
+                coach_data = self.gather_coach_data(coach_href)
+                if coach_data is None:
+                    continue
 
-            coach, result = self.gather_coach_data(coach_href)
-            if result == LoadResult.SKIP:
-                continue
-            elif result == LoadResult.SUCCESS:
-                self.coaches.append(coach)
-            elif result == LoadResult.ERROR:
-                return None
+                write_coach_to_csv(coach_data)
+                write_coach_data(coach_data)
+                self.persistant_processor.object_processed(coach_href)
+                coaches_processed += 1
+                self.logger.log("Progress: " + str(coaches_processed) + " / " + str(coaches_to_process) + " - " + \
+                                "{:.3f}".format(coaches_processed/coaches_to_process) + "%", Level.SUMMARY)
+        finally:
+            self.logger.log("Processed " + str(coaches_processed) + " out of " + str(coaches_to_process), Level.SUMMARY)
 
-        return self.coaches
+    def load_coaches_from_directory(self):
+        coach_hrefs = None
 
-    def load_directory(self):
         def inner_load():
+            nonlocal coach_hrefs
             self.logger.log("Trying to gather directory: " + self.directory_url, Level.SUMMARY)
             self.driver.get(self.directory_url)
             coach_elements = self.driver.find_elements_by_xpath("//*[@class='cmed_tiles_view_item']//*[@class='part1']/a")
-            self.coach_hrefs = [ce.get_attribute("href") for ce in coach_elements]
+            coach_hrefs = [ce.get_attribute("href") for ce in coach_elements]
 
         result = retry(inner_load, max_tries=self.retries)
         if not result:
             message = "Could not load directory: " + self.directory_url
             self.logger.log(message, Level.CRITICAL)
-            fail(message)
+            raise RuntimeError(message)
 
-        self.logger.log("Directory successfully gathered: " + self.directory_url, Level.SUMMARY)
-
-    def log_bad_coach(self, coach_href):
-        self.filter_file.write(coach_href + "\n")
-        self.filter_file.flush()
+        return coach_hrefs
 
     def gather_coach_data(self, coach_href):
         coach_data = None
@@ -72,7 +87,7 @@ class LifeCoachSchoolScraper(CoachScraper):
             nonlocal coach_data
             self.driver.get(coach_href)
 
-            first_name, last_name = self.gather_name()
+            full_name, first_name, last_name = self.gather_name()
             coach_cert = self.gather_coach_cert()
             niche = self.gather_niche()
             website = self.gather_website()
@@ -81,6 +96,7 @@ class LifeCoachSchoolScraper(CoachScraper):
 
             coach_data = CoachData(
                 source_url=coach_href,
+                full_name=full_name,
                 first_name=first_name,
                 last_name=last_name,
                 coach_cert=coach_cert,
@@ -101,28 +117,27 @@ class LifeCoachSchoolScraper(CoachScraper):
         if not result:
             message = "Could not gather coach data: " + coach_href
             self.logger.log(message, Level.ERROR)
-            self.log_bad_coach(coach_href)
-            return None, LoadResult.SKIP
+            return None
 
         self.logger.log("Coach successfully gathered." + coach_href, Level.DETAIL)
 
-        return coach_data, LoadResult.SUCCESS
+        return coach_data
 
     def gather_name(self):
         try:
-            first, last = extract_name(self.driver.find_element_by_xpath("//div[@class='cmed-title']").text)
-            if first is None:
+            full_name = self.driver.find_element_by_xpath("//div[@class='cmed-title']").text.lower()
+            first, last = extract_name(full_name)
+            if full_name is None:
                 raise Exception()
         except Exception as e:
             msg = "Unable to get name of coach: " + str(e)
             self.logger.log(msg, Level.ERROR)
             raise e
         self.logger.log("Gathered name: " + first + " " + last, Level.DETAIL_PLUS)
-        return first, last
+        return full_name, first, last
 
     def gather_coach_cert(self):
         try:
-            coach_cert = None
             coach_cert_text = self.driver.find_element_by_xpath("//div[@id='information-box']/ul[@class='cmed-box-taxonomy'][1]/li[2]").text
             coach_cert_text = coach_cert_text.lower()
             if coach_cert_text.lower() == "certified life coach":
@@ -165,7 +180,7 @@ class LifeCoachSchoolScraper(CoachScraper):
             website = self.driver.current_url
         except NoSuchElementException as e:
             msg = "This coach does not have a website."
-            self.logger.log(msg, Level.DETAIL)
+            self.logger.log(msg, Level.DETAIL_PLUS)
             return ""
         except Exception as e:
             msg = "Unable to get website of coach: " + str(e)
@@ -184,8 +199,8 @@ class LifeCoachSchoolScraper(CoachScraper):
             if email.startswith("mailto:"):
                 email = email[7:]
         except NoSuchElementException as e:
-            msg = "This coach does not have a website."
-            self.logger.log(msg, Level.WARNING)
+            msg = "This coach does not have an available email."
+            self.logger.log(msg, Level.DETAIL_PLUS)
             return "", ""
         except Exception as e:
             msg = "Unable to get email of coach: " + str(e)
@@ -193,6 +208,8 @@ class LifeCoachSchoolScraper(CoachScraper):
             email = ""
 
         phone = ""
+
+        self.logger.log("Gathered contact info. email: " + email + " phone:" + phone, Level.DETAIL_PLUS)
         return email, phone
 
     def gather_social_media(self):
@@ -201,7 +218,7 @@ class LifeCoachSchoolScraper(CoachScraper):
                 "href")
         except NoSuchElementException as e:
             msg = "This coach does not have an instagram."
-            self.logger.log(msg, Level.WARNING)
+            self.logger.log(msg, Level.DETAIL_PLUS)
             instagram = ""
         except Exception as e:
             msg = "Unable to get instagram of coach: " + str(e)
@@ -213,7 +230,7 @@ class LifeCoachSchoolScraper(CoachScraper):
                 "href")
         except NoSuchElementException as e:
             msg = "This coach does not have a linkedin."
-            self.logger.log(msg, Level.WARNING)
+            self.logger.log(msg, Level.DETAIL_PLUS)
             linkedin = ""
         except Exception as e:
             msg = "Unable to get linkedin of coach: " + str(e)
@@ -225,30 +242,31 @@ class LifeCoachSchoolScraper(CoachScraper):
                 "href")
         except NoSuchElementException as e:
             msg = "This coach does not have a twitter."
-            self.logger.log(msg, Level.WARNING)
+            self.logger.log(msg, Level.DETAIL_PLUS)
             twitter = ""
         except Exception as e:
             msg = "Unable to get twitter of coach: " + str(e)
             self.logger.log(msg, Level.ERROR)
             twitter = ""
 
+        self.logger.log("Gathered social media. instagram: " + instagram + \
+                        " twitter: " + twitter + " linkedin: " + linkedin, Level.DETAIL_PLUS)
+
         return instagram, linkedin, twitter
 
 
 class TestLifeCoachSchoolScraper(TestCase):
     def setUp(self):
-        if not logger.does_logger_exist():
-            logger.initialize_logger(logger.Level.DETAIL_PLUS)
-        if not config.is_config_loaded():
-            config.load_config("config_dir/config.ini")
+        test_setup()
 
     def test_gather_name(self):
-        test_href = "https://thelifecoachschool.com/certified-coach/vanessa-foerster/"
+        test_href = "https://thelifecoachschool.com/certified-coach/patti-britt-campbell/"
         lcs = LifeCoachSchoolScraper()
         lcs.driver.get(test_href)
-        first_name, last_name = lcs.gather_name()
-        self.assertEqual(first_name, "Vanessa")
-        self.assertEqual(last_name, "Foerster")
+        full_name, first_name, last_name = lcs.gather_name()
+        self.assertEqual(full_name, "patti britt campbell")
+        self.assertEqual(first_name, "patti")
+        self.assertEqual(last_name, "campbell")
 
     def test_gather_coach_cert(self):
         test_href = "https://thelifecoachschool.com/certified-coach/vanessa-foerster/"
@@ -289,13 +307,14 @@ class TestLifeCoachSchoolScraper(TestCase):
 
     def test_scrape_single_coach(self):
         lcs = LifeCoachSchoolScraper()
-        lcs.load_directory()
+        lcs.load_coaches_from_directory()
 
         test_href = "https://thelifecoachschool.com/certified-coach/vanessa-foerster/"
         cd = lcs.gather_coach_data(test_href)
         self.assertEqual(cd.source_url, test_href)
         self.assertEqual(cd.first_name, "Vanessa")
         self.assertEqual(cd.last_name, "Foerster")
+        self.assertEqual(cd.full_name, "Vanessa Foerster")
         self.assertEqual(cd.coach_cert, CoachCert.LIFE)
         self.assertEqual(cd.niche_description, "Health & Wellness, Other")
         self.assertEqual(cd.website_url, "https://www.vanessafayefoerster.com/")
@@ -303,6 +322,4 @@ class TestLifeCoachSchoolScraper(TestCase):
         self.assertEqual(cd.instagram_url, "https://www.instagram.com/vanessafayefoerster/?hl=en")
         self.assertEqual(cd.linkedin_url, "")
         self.assertEqual(cd.twitter_url, "")
-
-
 

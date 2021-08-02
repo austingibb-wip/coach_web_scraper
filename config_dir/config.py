@@ -4,6 +4,8 @@ _CONFIG = None
 
 def load_config(file):
     global _CONFIG
+    import os
+    print(os.getcwd())
     config = ConfigParser()
     config.read(file)
     _CONFIG = config

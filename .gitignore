@@ -3,7 +3,7 @@
 
 *.log
 
-output/*
+output/
 
 .idea/
 

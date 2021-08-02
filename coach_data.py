@@ -6,6 +6,7 @@ import csv
 
 from utils import validate_url, validate_email, validate_phone, validate_handle, \
     validate_email_default, validate_url_default, validate_handle_default, validate_phone_default, fail, any_in
+from test_utils import test_setup
 import logger
 from logger import Level
 
@@ -32,6 +33,7 @@ class CoachData:
     def __init__(self, source_url,
                  first_name='',
                  last_name='',
+                 full_name='',
                  coach_cert=None,
                  niche_description='',
                  website_url='',
@@ -55,15 +57,21 @@ class CoachData:
         if not source_url or not validate_url(source_url):
             message = "Source url not provided for coach."
             self.log(Level.CRITICAL, message)
-            fail(message)
+            raise ValueError(message)
         if coach_cert is not None and not isinstance(coach_cert, CoachCert):
             message = "Bad coach certification value."
             self.log(Level.CRITICAL, message)
-            fail(message)
+            raise ValueError(message)
 
         self.source_url = source_url
-        self.first_name = first_name
-        self.last_name = last_name
+        self.first_name = self.name_normalize(first_name)
+        self.last_name = self.name_normalize(last_name)
+        self.full_name = self.name_normalize(full_name)
+        if self.first_name.lower() not in self.full_name.lower() or self.last_name.lower() not in full_name.lower():
+            message = "Bad full name. Must be a superstring of firstname/lastname."
+            self.log(Level.CRITICAL, message)
+            raise ValueError(message)
+
         self.coach_cert = coach_cert
         self.niche_description = niche_description
         self.website_url = validate_url_default(website_url)
@@ -83,6 +91,11 @@ class CoachData:
 
         self.log(Level.DETAIL_PLUS, "Constructor done.")
 
+    @staticmethod
+    def name_normalize(name):
+        name_tokens = [nt.lower().capitalize() for nt in name.split()]
+        return " ".join(name_tokens)
+
     def get_data_elements(self):
         return [x for x in dir(self) if not x.startswith('__') and not x.startswith('_') and not callable(getattr(self, x))]
 
@@ -97,6 +110,9 @@ class CoachData:
         return data_elements_log
 
     def populate_social_media_url(self, site_urls, social_media, handle_prefix=""):
+        if not isinstance(site_urls, list) or len(site_urls) == 0:
+            raise ValueError("This is likely a programmer error, site_urls always need to be provided.")
+
         if not social_media:
             return ""
 
@@ -117,6 +133,7 @@ class CoachData:
             if handle_prefix:
                 handle_prefix = "/" + handle_prefix
 
+            # social media url isn't too important, just pick the first one
             constructed_url = "https://" + site_urls[0] + handle_prefix + "/" + social_media
 
             self.log(Level.DETAIL, "From handle '" + social_media + "' constructed url '" + constructed_url + "'")
@@ -129,6 +146,18 @@ class CoachData:
         self._logs.append((log_level, message))
         self._logger.log("[ Coach Data #" + self._uuid + " ] " + message, log_level)
 
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        # Remove the unpicklable entries.
+        del state['_logs']
+        del state['_logger']
+        return state
+
+    def __setstate__(self, d):
+        d["_logger"] = logger.get_logger()
+        d["_logs"] = []
+        self.__dict__ = d
+
 class TestCoachData(TestCase):
     SOME_URL = "http://someurl.com"
     NON_URL = "badurl"
@@ -138,8 +167,7 @@ class TestCoachData(TestCase):
     SETUP_DONE = False
 
     def setUp(self):
-        if not logger.does_logger_exist():
-            logger.initialize_logger(Level.DETAIL_PLUS)
+        test_setup()
 
     def test_fail_no_source_url(self):
         with self.assertRaises(SystemExit, msg="CoachData should fail with no source url."):
@@ -174,8 +202,9 @@ class TestCoachData(TestCase):
     def test_data_snapshot(self):
         data = {
             "source_url": "somecoachdirectory.com",
-            "first_name": "Rick",
-            "last_name": "Sanches",
+            "first_name": "rick",
+            "last_name": "sanches",
+            "full_name": "rick Gargler Sanches",
             "coach_cert": CoachCert.MASTER,
             "niche_description": "Basketball, Dance",
             "website_url": "betterthanyoucoaching.com",
@@ -187,14 +216,16 @@ class TestCoachData(TestCase):
 
         datasnapshot = cd.data_snapshot(log=False)
         for key in data:
+            if key in ["first_name", "last_name", "full_name"]:
+                data[key] = CoachData.name_normalize(data[key])
+
             if key not in datasnapshot or str(data[key]) not in datasnapshot:
                 self.fail("Data value or key is missing from coach data snapshot. " + key + ":" + str(data[key]))
 
 
 class TestCoachDataSocialMedia(TestCase):
     def setUp(self):
-        if not logger.does_logger_exist():
-            logger.initialize_logger(Level.DETAIL_PLUS)
+        test_setup()
 
     def test_invalid_social_media(self):
         cd = CoachData(TestCoachData.SOME_URL, twitter_url="test@gmail.com")

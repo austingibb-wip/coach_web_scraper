@@ -16,6 +16,7 @@ social_media_handle_regex = re.compile("^\s*(@?[A-Za-z0-9-_]+(?![@]))\s*$")
 
 phone_regex = re.compile("^1?([0-9]{3})?[0-9]{7}$")
 
+
 def extract_name(name_text):
     name_tokens = name_text.split()
     filtered_tokens = []
@@ -26,12 +27,12 @@ def extract_name(name_text):
         translation_table = dict.fromkeys(map(ord, ","), None)
         token = token.translate(translation_table)
         if any_equal(["dr.", "dr", "m.b.a.", "mba", "m.b.a", "ma", "m.a.", "m.a", "md", "m.d.", "m.d",
-                      "ra", "r.a.", "r.a"], token):
+                      "ra", "r.a.", "r.a", "ph.d.", "p.h.d.", "phd.", "phd"], token):
             continue
         filtered_tokens.append(token)
 
     if len(filtered_tokens) > 3 or len(filtered_tokens) < 2:
-        return None, None
+        return "", ""
     elif len(filtered_tokens) == 2:
         return filtered_tokens[0], filtered_tokens[1]
     elif len(filtered_tokens) == 3:
@@ -48,11 +49,13 @@ def retry(fun, max_tries=10):
             continue
     return False
 
+
 def any_equal(possible_vals, single_val):
     for val in possible_vals:
         if single_val == val:
             return True
     return False
+
 
 def any_in(possible_vals, container):
     for val in possible_vals:
@@ -115,7 +118,6 @@ def validate_default(validator, s, default):
         return s
     else:
         return default
-
 
 class _UrlValidatorTest(TestCase):
     def test_http(self):
@@ -183,3 +185,43 @@ class _HandleValidatorTest(TestCase):
     def test_handle_reject_url(self):
         handle = "website.com"
         self.assertEqual(validate_handle(handle), False)
+
+
+class _RetryTest(TestCase):
+    def test_retry_success(self):
+        run_count = 0
+        max_retries = 3
+
+        def fun():
+            nonlocal run_count, max_retries
+            run_count += 1
+            if run_count < max_retries:
+                raise Exception("Error case.")
+            else:
+                s = "batman senpai"
+
+        result = retry(fun, max_retries)
+        self.assertEqual(result, True)
+
+    def test_retry_fail(self):
+        run_count = 0
+        max_retries = 3
+
+        def fun():
+            nonlocal run_count, max_retries
+            run_count += 1
+            if run_count < max_retries + 1:
+                raise Exception("Error case.")
+            else:
+                s = "batman senpai"
+
+        result = retry(fun, max_retries)
+        self.assertEqual(result, False)
+
+
+class _AnyEqualTest(TestCase):
+    def test_any_equal_success(self):
+        self.assertEqual(any_equal(["hi", "one", "is", "equal"], "equal"), True)
+
+    def test_any_equal_fail(self):
+        self.assertEqual(any_equal(["hi", "none", "are", "equal"], "not"), False)
