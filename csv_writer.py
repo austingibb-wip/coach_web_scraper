@@ -9,7 +9,7 @@ HEADER_ROW = ["First Name", "Last Name", "Certification", "Niche", "Website", "E
 
 def write_coaches_to_csv(coaches, csv_file_path):
     global HEADER_ROW
-    with open(csv_file_path, "w+") as csv_file:
+    with open(csv_file_path, "a+") as csv_file:
         csv_writer = csv.writer(csv_file)
         csv_writer.writerow(HEADER_ROW)
         for coach in coaches:

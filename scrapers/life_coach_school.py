@@ -12,18 +12,30 @@ import logger
 from logger import Level
 from coach_data import CoachData, CoachCert
 from config_dir import config
-from utils import retry, fail
-
+from utils import retry, fail, extract_name
 
 class LifeCoachSchoolScraper(CoachScraper):
     def __init__(self):
         super().__init__(r"https://thelifecoachschool.com/directory/")
         self.driver = webdriver.Firefox()
         self.coach_hrefs = None
+        self.coach_filter_file_path = config.read("LIFE_COACH_SCHOOL_SCRAPER", "ERROR_FILTER_FILE")
+        self.href_coach_filter = self.load_href_coach_filter()
+        self.filter_file = open(self.coach_filter_file_path, "w+")
+
+    def load_href_coach_filter(self):
+        href_coach_filter = set()
+        with open(self.coach_filter_file_path, "r") as filter_file:
+            for line in filter_file:
+                href_coach_filter.add(line.strip())
+        return href_coach_filter
 
     def load_all_coaches(self):
         self.load_directory()
         for coach_href in self.coach_hrefs:
+            if len(self.href_coach_filter) > 0 and coach_href not in self.href_coach_filter:
+                continue
+
             coach, result = self.gather_coach_data(coach_href)
             if result == LoadResult.SKIP:
                 continue
@@ -48,6 +60,10 @@ class LifeCoachSchoolScraper(CoachScraper):
             fail(message)
 
         self.logger.log("Directory successfully gathered: " + self.directory_url, Level.SUMMARY)
+
+    def log_bad_coach(self, coach_href):
+        self.filter_file.write(coach_href + "\n")
+        self.filter_file.flush()
 
     def gather_coach_data(self, coach_href):
         coach_data = None
@@ -77,19 +93,26 @@ class LifeCoachSchoolScraper(CoachScraper):
                 linkedin_url=linkedin_url
             )
 
-        result = retry(inner_gather, self.retries)
+        try:
+            result = retry(inner_gather, self.retries)
+        except:
+            result = False
+
         if not result:
             message = "Could not gather coach data: " + coach_href
             self.logger.log(message, Level.ERROR)
+            self.log_bad_coach(coach_href)
             return None, LoadResult.SKIP
 
         self.logger.log("Coach successfully gathered." + coach_href, Level.DETAIL)
 
-        return coach_data
+        return coach_data, LoadResult.SUCCESS
 
     def gather_name(self):
         try:
-            first, last = self.driver.find_element_by_xpath("//div[@class='cmed-title']").text.split()
+            first, last = extract_name(self.driver.find_element_by_xpath("//div[@class='cmed-title']").text)
+            if first is None:
+                raise Exception()
         except Exception as e:
             msg = "Unable to get name of coach: " + str(e)
             self.logger.log(msg, Level.ERROR)
@@ -124,7 +147,7 @@ class LifeCoachSchoolScraper(CoachScraper):
             niche = ", ".join([line.text for line in niche_lines])
         except NoSuchElementException as e:
             msg = "This coach does not have a niche description."
-            self.logger.log(msg, Level.WARNING)
+            self.logger.log(msg, Level.DETAIL)
             return None
         except Exception as e:
             msg = "Unable to get niche of coach: " + str(e)
@@ -142,7 +165,7 @@ class LifeCoachSchoolScraper(CoachScraper):
             website = self.driver.current_url
         except NoSuchElementException as e:
             msg = "This coach does not have a website."
-            self.logger.log(msg, Level.WARNING)
+            self.logger.log(msg, Level.DETAIL)
             return ""
         except Exception as e:
             msg = "Unable to get website of coach: " + str(e)

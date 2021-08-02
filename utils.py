@@ -16,6 +16,28 @@ social_media_handle_regex = re.compile("^\s*(@?[A-Za-z0-9-_]+(?![@]))\s*$")
 
 phone_regex = re.compile("^1?([0-9]{3})?[0-9]{7}$")
 
+def extract_name(name_text):
+    name_tokens = name_text.split()
+    filtered_tokens = []
+    for token in name_tokens:
+        # lowercase token to simplify
+        token = token.lower()
+        # remove commas
+        translation_table = dict.fromkeys(map(ord, ","), None)
+        token = token.translate(translation_table)
+        if any_equal(["dr.", "dr", "m.b.a.", "mba", "m.b.a", "ma", "m.a.", "m.a", "md", "m.d.", "m.d",
+                      "ra", "r.a.", "r.a"], token):
+            continue
+        filtered_tokens.append(token)
+
+    if len(filtered_tokens) > 3 or len(filtered_tokens) < 2:
+        return None, None
+    elif len(filtered_tokens) == 2:
+        return filtered_tokens[0], filtered_tokens[1]
+    elif len(filtered_tokens) == 3:
+        return filtered_tokens[0], filtered_tokens[2]
+
+
 def retry(fun, max_tries=10):
     for i in range(max_tries):
         try:
@@ -24,6 +46,12 @@ def retry(fun, max_tries=10):
         except Exception:
             time.sleep(0.3)
             continue
+    return False
+
+def any_equal(possible_vals, single_val):
+    for val in possible_vals:
+        if single_val == val:
+            return True
     return False
 
 def any_in(possible_vals, container):
