@@ -39,9 +39,7 @@ def write_header_row(csv_file_path=None):
         csv_writer.writerow(HEADER_ROW)
 
 
-def write_coach_to_csv(coach, csv_file_path=None):
-    if csv_file_path is None:
-        csv_file_path = config.read("GENERAL", "CSV_FILE_PATH")
+def write_coach_to_csv(coach, csv_file_path):
     with open(csv_file_path, "a+") as csv_file:
         csv_writer = csv.writer(csv_file)
         csv_writer.writerow([

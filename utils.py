@@ -17,35 +17,40 @@ social_media_handle_regex = re.compile("^\s*(@?[A-Za-z0-9-_]+(?![@]))\s*$")
 phone_regex = re.compile("^1?([0-9]{3})?[0-9]{7}$")
 
 
+def normalize_name(name):
+    name_tokens = [nt.lower().capitalize() for nt in name.split()]
+    return " ".join(name_tokens)
+
+
 def extract_name(name_text):
-    name_tokens = name_text.split()
+    name_tokens = name_text.split(",")[0].split()
     filtered_tokens = []
     for token in name_tokens:
         # lowercase token to simplify
         token = token.lower()
-        # remove commas
-        translation_table = dict.fromkeys(map(ord, ","), None)
-        token = token.translate(translation_table)
         if any_equal(["dr.", "dr", "m.b.a.", "mba", "m.b.a", "ma", "m.a.", "m.a", "md", "m.d.", "m.d",
-                      "ra", "r.a.", "r.a", "ph.d.", "p.h.d.", "phd.", "phd"], token):
+                      "ra", "r.a.", "r.a", "ph.d.", "p.h.d.", "phd.", "phd", "r.n.", "r.n", "rn", "msa",
+                      "m.s.a", "m.s.a", "p.c.c.", "pcc", "p.c", "rev.", "mr.", "mr", "mrs", "mrs.", "ms.", "ms"], token):
             continue
         filtered_tokens.append(token)
 
-    if len(filtered_tokens) > 3 or len(filtered_tokens) < 2:
+    if len(filtered_tokens) < 2:
         return "", ""
-    elif len(filtered_tokens) == 2:
-        return filtered_tokens[0], filtered_tokens[1]
     elif len(filtered_tokens) == 3:
         return filtered_tokens[0], filtered_tokens[2]
+    elif len(filtered_tokens) >= 2:
+        return filtered_tokens[0], filtered_tokens[1]
 
 
-def retry(fun, max_tries=10):
+def retry(fun, max_tries=10, sleep_time=0.3, on_exception=None):
     for i in range(max_tries):
         try:
            fun()
            return True
-        except Exception:
-            time.sleep(0.3)
+        except Exception as e:
+            if on_exception:
+                on_exception()
+            time.sleep(sleep_time)
             continue
     return False
 
@@ -118,6 +123,7 @@ def validate_default(validator, s, default):
         return s
     else:
         return default
+
 
 class _UrlValidatorTest(TestCase):
     def test_http(self):

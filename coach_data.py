@@ -5,7 +5,8 @@ import re
 import csv
 
 from utils import validate_url, validate_email, validate_phone, validate_handle, \
-    validate_email_default, validate_url_default, validate_handle_default, validate_phone_default, fail, any_in
+    validate_email_default, validate_url_default, validate_handle_default, validate_phone_default, fail, any_in,\
+    normalize_phone
 from test_utils import test_setup
 import logger
 from logger import Level
@@ -64,9 +65,9 @@ class CoachData:
             raise ValueError(message)
 
         self.source_url = source_url
-        self.first_name = self.name_normalize(first_name)
-        self.last_name = self.name_normalize(last_name)
-        self.full_name = self.name_normalize(full_name)
+        self.first_name = first_name
+        self.last_name = last_name
+        self.full_name = full_name
         if self.first_name.lower() not in self.full_name.lower() or self.last_name.lower() not in full_name.lower():
             message = "Bad full name. Must be a superstring of firstname/lastname."
             self.log(Level.CRITICAL, message)
@@ -91,11 +92,6 @@ class CoachData:
 
         self.log(Level.DETAIL_PLUS, "Constructor done.")
 
-    @staticmethod
-    def name_normalize(name):
-        name_tokens = [nt.lower().capitalize() for nt in name.split()]
-        return " ".join(name_tokens)
-
     def get_data_elements(self):
         return [x for x in dir(self) if not x.startswith('__') and not x.startswith('_') and not callable(getattr(self, x))]
 
@@ -106,7 +102,7 @@ class CoachData:
             data_elements_log += data_element + "='" + str(getattr(self, data_element)) + "', "
         data_elements_log = data_elements_log[0:-2]
         data_elements_log += " ]"
-        self.log(Level.DETAIL, data_elements_log)
+        self.log(Level.SUMMARY, data_elements_log)
         return data_elements_log
 
     def populate_social_media_url(self, site_urls, social_media, handle_prefix=""):
