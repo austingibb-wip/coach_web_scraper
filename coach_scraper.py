@@ -1,13 +1,16 @@
 from abc import ABC, abstractmethod
 from selenium.common.exceptions import NoSuchElementException
 import traceback
+from typing import Optional
 
 from config_dir import config
 import logger
 from logger import Level
-from coach_data import CoachData
-from coach_data_writer import write_coach_to_csv, write_coach_data
-from utils import retry, normalize_phone, normalize_name
+from coach.data import CoachData, CoachCert
+from coach.validation.name import normalize_name
+from coach.validation.phone import normalize_phone
+from utils.control_flow import retry_function_sleep as retry
+
 
 class CoachScraper(ABC):
     def __init__(self, driver):
@@ -15,7 +18,7 @@ class CoachScraper(ABC):
         self.logger = logger.get_logger()
         self.retries = int(config.read("GENERAL", "COACH_RETRIES_BEFORE_FAIL"))
 
-    def gather_coach_data(self, source_url, data=None):
+    def gather_coach_data(self, source_url: str, data=None) -> Optional[CoachData]:
         coach_data = None
 
         def inner_gather():
@@ -40,7 +43,7 @@ class CoachScraper(ABC):
                 phone=phone,
                 instagram_url=instagram_url,
                 twitter_url=twitter_url,
-                linkedin_url=linkedin_url
+                linkedin_url=linkedin_url,
             )
 
         def inner_gather_fail():
@@ -58,7 +61,7 @@ class CoachScraper(ABC):
 
         return coach_data
 
-    def gather_name(self, data=None):
+    def gather_name(self, data=None) -> (str, str, str):
         try:
             full_name, first, last = self._gather_name(data)
             full_name = normalize_name(full_name)
@@ -72,10 +75,10 @@ class CoachScraper(ABC):
         return full_name, first, last
 
     @abstractmethod
-    def _gather_name(self, data):
+    def _gather_name(self, data) -> (str, str, str):
         pass
 
-    def gather_coach_cert(self, data=None):
+    def gather_coach_cert(self, data=None) -> Optional[CoachCert]:
         try:
             coach_cert = self._gather_coach_cert(data)
         except Exception as e:
@@ -87,10 +90,10 @@ class CoachScraper(ABC):
         return coach_cert
 
     @abstractmethod
-    def _gather_coach_cert(self, data):
+    def _gather_coach_cert(self, data) -> Optional[CoachCert]:
         pass
 
-    def gather_niche(self, data=None):
+    def gather_niche(self, data=None) -> Optional[str]:
         try:
             niche = self._gather_niche(data)
         except NoSuchElementException as e:
@@ -106,10 +109,10 @@ class CoachScraper(ABC):
         return niche
 
     @abstractmethod
-    def _gather_niche(self, data):
+    def _gather_niche(self, data) -> Optional[str]:
         pass
 
-    def gather_website(self, data=None):
+    def gather_website(self, data=None) -> Optional[str]:
         try:
             website = self._gather_website(data)
         except NoSuchElementException as e:
@@ -125,10 +128,10 @@ class CoachScraper(ABC):
         return website
 
     @abstractmethod
-    def _gather_website(self, data):
+    def _gather_website(self, data) -> str:
         pass
 
-    def gather_email(self, data=None):
+    def gather_email(self, data=None) -> str:
         try:
             email = self._gather_email(data)
         except NoSuchElementException as e:
@@ -144,10 +147,10 @@ class CoachScraper(ABC):
         return email
 
     @abstractmethod
-    def _gather_email(self, data):
+    def _gather_email(self, data) -> str:
         pass
 
-    def gather_phone(self, data=None):
+    def gather_phone(self, data=None) -> str:
         try:
             phone = normalize_phone(self._gather_phone(data))
         except NoSuchElementException as e:
@@ -163,10 +166,10 @@ class CoachScraper(ABC):
         return phone
 
     @abstractmethod
-    def _gather_phone(self, data):
+    def _gather_phone(self, data) -> str:
         pass
 
-    def gather_social_media(self, data=None):
+    def gather_social_media(self, data=None) -> (str, str, str):
         try:
             instagram = self._gather_instagram(data)
         except NoSuchElementException as e:
@@ -200,19 +203,28 @@ class CoachScraper(ABC):
             self.logger.log(msg, Level.ERROR)
             twitter = ""
 
-        self.logger.log("Gathered social media. Instagram: '" + instagram + "'" +
-                        " Twitter: '" + twitter + "' Linkedin: '" + linkedin + "'", Level.DETAIL_PLUS)
+        self.logger.log(
+            "Gathered social media. Instagram: '"
+            + instagram
+            + "'"
+            + " Twitter: '"
+            + twitter
+            + "' Linkedin: '"
+            + linkedin
+            + "'",
+            Level.DETAIL_PLUS,
+        )
 
         return instagram, linkedin, twitter
 
     @abstractmethod
-    def _gather_instagram(self, data):
+    def _gather_instagram(self, data) -> str:
         pass
 
     @abstractmethod
-    def _gather_linkedin(self, data):
+    def _gather_linkedin(self, data) -> str:
         pass
 
     @abstractmethod
-    def _gather_twitter(self, data):
+    def _gather_twitter(self, data) -> str:
         pass

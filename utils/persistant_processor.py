@@ -1,12 +1,12 @@
 import os
 import pickle
-
 from unittest import TestCase
 from test_utils import test_setup
 
 from config_dir import config
 
-class PersistentCoachProcessor:
+
+class PersistentProcessor:
     def __init__(self, objects_file_path=None):
         self.object_file_exists = None
         self.objects_file_path = objects_file_path
@@ -23,13 +23,18 @@ class PersistentCoachProcessor:
 
     def initialize(self, objects):
         if self.object_file_exists:
-            raise RuntimeError("Objects have already been initialized, to reset delete the associated file and flag.")
+            raise RuntimeError(
+                "Objects have already been initialized, to reset delete the associated file and flag."
+            )
 
         if not isinstance(objects, dict):
             raise ValueError("Objects should be a dict.")
 
         self.objects_dict = objects
         self._persist_objects()
+
+    def get_unprocessed(self):
+        return list(self.objects_dict.keys())
 
     def object_processed(self, key):
         del self.objects_dict[key]
@@ -43,13 +48,15 @@ class PersistentCoachProcessor:
 
     def _get_existing_objects(self):
         if not os.path.isfile(self.objects_file_path):
-            raise RuntimeError("Get existing objects should never be called when objects haven't been created.")
+            raise RuntimeError(
+                "Get existing objects should never be called when objects haven't been created."
+            )
 
         with open(self.objects_file_path, "rb+") as objects_file:
             return pickle.load(objects_file)
 
 
-class _TestPersistentCoachProcessor(TestCase):
+class _TestPersistentProcessor(TestCase):
     def setUp(self):
         test_setup()
         objects_file_path = config.read("TEST", "TEST_OBJECTS_PATH")
@@ -60,10 +67,9 @@ class _TestPersistentCoachProcessor(TestCase):
         objects_file_path = config.read("TEST", "TEST_OBJECTS_PATH")
 
         self.assertEqual(os.path.isfile(objects_file_path), False)
-        lcs_pp = PersistentCoachProcessor(
-            objects_file_path=objects_file_path
-        )
-        lcs_pp.initialize({"hi": "hi", "there": "there"})
+        pp = PersistentProcessor(objects_file_path=objects_file_path)
+        pp.initialize({"hi": "hi", "there": "there"})
+        self.assertEqual(os.path.isfile(objects_file_path), True)
         self.assertEqual(os.path.isfile(objects_file_path), True)
 
         with open(objects_file_path, "rb") as objects_file:
@@ -73,20 +79,11 @@ class _TestPersistentCoachProcessor(TestCase):
 
     def test_process(self):
         objects_file_path = config.read("TEST", "TEST_OBJECTS_PATH")
-        pp = PersistentCoachProcessor(
+        pp = PersistentProcessor(
             objects_file_path=objects_file_path,
         )
         pp.initialize({"hi": "hi", "there": "there"})
         pp.object_processed("hi")
-        with open(objects_file_path, "rb") as objects_file:
-            objects_dict = pickle.load(objects_file)
-            self.assertTrue("hi" not in objects_dict)
-            self.assertTrue("there" in objects_dict)
-
-        pp2 = PersistentCoachProcessor(
-            objects_file_path=objects_file_path
-        )
-        self.assertEqual(pp2.is_initialized(), True)
         with open(objects_file_path, "rb") as objects_file:
             objects_dict = pickle.load(objects_file)
             self.assertTrue("hi" not in objects_dict)

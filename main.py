@@ -3,9 +3,8 @@ import logger
 from logger import Level
 from selenium import webdriver
 
-from scrapers.life_coach_school import LifeCoachSchoolWebScraper
-from scrapers.coaching_federation import FederationWebScraper
-from configparser import ConfigParser
+from sites.coaching_federation.cf_scraper import FederationWebScraper
+
 
 def main():
     config.load_config("config_dir/config.ini")
@@ -17,5 +16,6 @@ def main():
     fcs = FederationWebScraper(driver)
     fcs.process_all_coaches()
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

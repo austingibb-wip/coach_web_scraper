@@ -4,30 +4,47 @@ import pickle
 import os
 
 from config_dir import config
-import logger
-from coach_data import CoachData, CoachCert
+from coach.data import CoachData, CoachCert
 from test_utils import test_setup
+from utils.files import atomic_write
 
-HEADER_ROW = ["First Name", "Last Name", "Full Name", "Certification", "Niche", "Website", "Email", "Instagram", "Twitter", "Linkedin", "Source URL"]
+HEADER_ROW = [
+    "First Name",
+    "Last Name",
+    "Full Name",
+    "Certification",
+    "Niche",
+    "Website",
+    "Email",
+    "Instagram",
+    "Twitter",
+    "Linkedin",
+    "Source URL",
+]
 
 
 def write_coach_data(coach_data, coach_data_storage_path=None):
     if coach_data_storage_path is None:
         coach_data_storage_path = config.read("GENERAL", "COACH_DATA_STORAGE_PATH")
 
-    if not os.path.isfile(coach_data_storage_path):
-        with open(coach_data_storage_path, 'ab') as coach_data_storage:
-            pickle.dump([], coach_data_storage, protocol=pickle.HIGHEST_PROTOCOL)
+    coach_data_list = None
 
-    with open(coach_data_storage_path, "rb+") as coach_data_storage:
-        coach_data_storage_list = pickle.load(coach_data_storage)
-        coach_data_storage_list.append(coach_data)
+    def init_coach_data_file(coach_data_file):
+        pickle.dump([], coach_data_file, protocol=pickle.HIGHEST_PROTOCOL)
 
-    temp_file_path = coach_data_storage_path + ".temp"
-    with open(temp_file_path, "wb+") as temp_file:
-        pickle.dump(coach_data_storage_list, temp_file, protocol=pickle.HIGHEST_PROTOCOL)
+    def read_coach_data_file(coach_data_file):
+        nonlocal coach_data_list
+        coach_data_list = pickle.load(coach_data_file)
+        coach_data_list.append(coach_data)
 
-    os.replace(temp_file_path, coach_data_storage_path)
+    def modify_coach_data_file(coach_data_file):
+        nonlocal coach_data_list
+        pickle.dump(
+            coach_data_list, coach_data_file, protocol=pickle.HIGHEST_PROTOCOL
+        )
+
+    atomic_write(coach_data_storage_path, init_file=init_coach_data_file, read_file=read_coach_data_file, modify_file=modify_coach_data_file)
+
 
 
 def write_header_row(csv_file_path=None):
@@ -42,29 +59,38 @@ def write_header_row(csv_file_path=None):
 def write_coach_to_csv(coach, csv_file_path):
     with open(csv_file_path, "a+") as csv_file:
         csv_writer = csv.writer(csv_file)
-        csv_writer.writerow([
-            coach.first_name,
-            coach.last_name,
-            coach.full_name,
-            str(coach.coach_cert),
-            coach.niche_description,
-            coach.website_url,
-            coach.email,
-            coach.instagram_url,
-            coach.twitter_url,
-            coach.linkedin_url,
-            coach.source_url
-        ])
+        csv_writer.writerow(
+            [
+                coach.first_name,
+                coach.last_name,
+                coach.full_name,
+                str(coach.coach_cert),
+                coach.niche_description,
+                coach.website_url,
+                coach.email,
+                coach.instagram_url,
+                coach.twitter_url,
+                coach.linkedin_url,
+                coach.source_url,
+            ]
+        )
 
 
 class WriteCoachesTest(TestCase):
     @staticmethod
     def coach_data_to_expected_csv_row(cd):
-        return "{first_name},{last_name},{full_name},{coach_cert},\"{niche_description}\",{website_url},{email},{instagram_url},{twitter_url},{linkedin_url},{source_url}\n".format(
-            first_name=cd.first_name, last_name=cd.last_name, full_name=cd.full_name,
-            coach_cert=str(cd.coach_cert), niche_description=cd.niche_description,
-            website_url=cd.website_url, email=cd.email, instagram_url=cd.instagram_url, twitter_url=cd.twitter_url,
-            linkedin_url=cd.linkedin_url, source_url=cd.source_url
+        return '{first_name},{last_name},{full_name},{coach_cert},"{niche_description}",{website_url},{email},{instagram_url},{twitter_url},{linkedin_url},{source_url}\n'.format(
+            first_name=cd.first_name,
+            last_name=cd.last_name,
+            full_name=cd.full_name,
+            coach_cert=str(cd.coach_cert),
+            niche_description=cd.niche_description,
+            website_url=cd.website_url,
+            email=cd.email,
+            instagram_url=cd.instagram_url,
+            twitter_url=cd.twitter_url,
+            linkedin_url=cd.linkedin_url,
+            source_url=cd.source_url,
         )
 
     def setUp(self):
@@ -88,7 +114,7 @@ class WriteCoachesTest(TestCase):
             "email": "coach.one@coachone.com",
             "instagram_url": "coachone",
             "twitter_url": "coachone",
-            "linkedin_url": "coachone"
+            "linkedin_url": "coachone",
         }
 
         raw_data_2 = {
@@ -102,7 +128,7 @@ class WriteCoachesTest(TestCase):
             "email": "coach.two@coachtwo.com",
             "instagram_url": "coachtwo",
             "twitter_url": "coachtwo",
-            "linkedin_url": "coachtwo"
+            "linkedin_url": "coachtwo",
         }
 
         raw_data_3 = {
@@ -116,7 +142,7 @@ class WriteCoachesTest(TestCase):
             "email": "coach.three@coachthree.com",
             "instagram_url": "coachthree",
             "twitter_url": "coachthree",
-            "linkedin_url": "coachthree"
+            "linkedin_url": "coachthree",
         }
 
         cd1 = CoachData(**raw_data_1)
@@ -130,12 +156,15 @@ class WriteCoachesTest(TestCase):
         write_coach_to_csv(cd2, csv_file_path)
         write_coach_to_csv(cd3, csv_file_path)
 
-        expected_csv_data = ",".join(HEADER_ROW) + "\n" + \
-        self.coach_data_to_expected_csv_row(cd1) + \
-        self.coach_data_to_expected_csv_row(cd2) + \
-        self.coach_data_to_expected_csv_row(cd3)
+        expected_csv_data = (
+            ",".join(HEADER_ROW)
+            + "\n"
+            + self.coach_data_to_expected_csv_row(cd1)
+            + self.coach_data_to_expected_csv_row(cd2)
+            + self.coach_data_to_expected_csv_row(cd3)
+        )
 
-        with open(csv_file_path, 'r') as csv_file:
+        with open(csv_file_path, "r") as csv_file:
             csv_file_contents = csv_file.read()
             self.assertEqual(expected_csv_data, csv_file_contents)
 
@@ -151,8 +180,22 @@ class WriteCoachesTest(TestCase):
             "email": "coach.one@coachone.com",
             "instagram_url": "coachone",
             "twitter_url": "coachone",
-            "linkedin_url": "coachone"
+            "linkedin_url": "coachone",
         }
+        raw_data_2 = {
+            "source_url": "coachfunky.com/coach_two",
+            "full_name": "Coach Middle Two",
+            "first_name": "Coach",
+            "last_name": "Two",
+            "coach_cert": CoachCert.MASTER,
+            "niche_description": "Coach, Two, Things",
+            "website_url": "coachtwo.com",
+            "email": "coach.two@coachtwo.com",
+            "instagram_url": "coachtwo",
+            "twitter_url": "coachtwo",
+            "linkedin_url": "coachtwo",
+        }
+
         cd1 = CoachData(**raw_data_1)
         coach_data_storage_path = config.read("TEST", "TEST_COACH_DATA_STORAGE_PATH")
         write_coach_data(cd1, coach_data_storage_path=coach_data_storage_path)
@@ -160,3 +203,17 @@ class WriteCoachesTest(TestCase):
             cd_list = pickle.load(coach_data_storage)
             self.assertEqual(len(cd_list), 1)
             self.assertEqual(cd_list[0].first_name, "Coach")
+            self.assertEqual(cd_list[0].last_name, "One")
+            self.assertEqual(cd_list[0].instagram_url, "https://instagram.com/coachone")
+
+        cd2 = CoachData(**raw_data_2)
+        write_coach_data(cd2, coach_data_storage_path=coach_data_storage_path)
+        with open(coach_data_storage_path, "rb") as coach_data_storage:
+            cd_list = pickle.load(coach_data_storage)
+            self.assertEqual(len(cd_list), 2)
+            self.assertEqual(cd_list[0].first_name, "Coach")
+            self.assertEqual(cd_list[0].last_name, "One")
+            self.assertEqual(cd_list[0].instagram_url, "https://instagram.com/coachone")
+            self.assertEqual(cd_list[1].first_name, "Coach")
+            self.assertEqual(cd_list[1].last_name, "Two")
+            self.assertEqual(cd_list[1].instagram_url, "https://instagram.com/coachtwo")
